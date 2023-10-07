@@ -9,11 +9,10 @@ const passport=require("passport");
 const passportLocalMongoose=require("passport-local-mongoose");
 const GoogleStrategy=require("passport-google-oauth20").Strategy;
 const findOrCreate=require("mongoose-findorcreate");
-
 // const bcrypt=require("bcrypt");
 // const saltRounds=10;
-// const encrypt= require ("mongoose-encryption");
 // const md5=require("md5");
+// const encrypt= require ("mongoose-encryption");
 const app=express();
 
 // console.log(process.env.API_KEY);
@@ -32,16 +31,17 @@ app.use(session({
 app.use(passport.initialize());
 app.use(passport.session());
 
-
 main().catch(err=> console.log(err));
 async function main(){
   await mongoose.connect('mongodb://127.0.0.1:27017/userDB');
 }
 
+// mongoose.set("useCreateIndex",true);
 const userSchema=new mongoose.Schema({
     email:String,
     password:String,
-    googleId:String
+    googleId:String,
+    secret:String
 });
 
 userSchema.plugin(passportLocalMongoose);
@@ -54,31 +54,18 @@ passport.use(User.createStrategy());
 
 // passport.serializeUser(User.serializeUser());
 // passport.deserializeUser(User.deserializeUser());
+
 passport.serializeUser(function(user,done){
     done(null,user.id);
 });
 passport.deserializeUser(function(id,done){
-    const findByIdPromise = (id) => {
-        return new Promise((resolve, reject) => {
-          User.findById(id)
-            .then((user) => {
-              resolve(user);
-            })
-            .catch((err) => {
-              reject(err);
-            });
-        });
-      };
-      
-      findByIdPromise(id)
-        .then((user) => {
-          // Successfully found the user
-          done(null, user);
-        })
-        .catch((err) => {
-          // Handle error
-          done(err, null);
-        });
+    User.findById(id).exec()
+  .then((user) => {
+    done(null, user);
+  })
+  .catch((err) => {
+    done(err, null);
+  });
       
 });
 
@@ -107,7 +94,6 @@ app.get("/auth/google",
 app.get('/auth/google/secrets', 
   passport.authenticate('google', { failureRedirect: '/login' }),
   function(req, res) {
-    // Successful authentication, redirect secrets.
     res.redirect("/secrets");
   });
 
@@ -120,11 +106,36 @@ app.get("/register", function(req,res){
 });
 
 app.get("/secrets", function(req,res){
+    User.find({ "secret": { $ne: null } })
+  .then((foundUsers) => {
+    res.render("secrets", { usersWithSecrets: foundUsers });
+    })
+  .catch((err) => {
+    console.log(err);
+  });
+});
+
+app.get("/submit",function(req,res){
     if(req.isAuthenticated()){
-        res.render("secrets");
+        res.render("submit");
     }else{
         res.redirect("/login");
+    }  
+});
+
+app.post("/submit",function(req,res){
+    const submittedSecret=req.body.secret;
+    User.findById(req.user.id)
+    .then((foundUser) => {
+      if (foundUser) {
+        foundUser.secret=submittedSecret;
+        foundUser.save();
+          res.redirect("/secrets");
     }
+  })
+  .catch((err) => {
+    console.log(err);
+  });
 });
 
 app.get("/logout", function(req, res) {
@@ -138,53 +149,6 @@ app.get("/logout", function(req, res) {
     });
 });
 
-// app.post("/register", function(req,res){
-//     const newUser= new User({
-//         email:req.body.username,
-//         password: md5(req.body.password)
-//     });
-//     newUser.save()
-//     .then(() => {
-//         res.render("secrets");
-//     })
-//     .catch((err) => {
-//         console.log(err);
-//     });
-// });
-
-// app.post("/register", function(req,res){
-//     bcrypt.hash(req.body.password, saltRounds, function(err, hash){
-//         const newUser= new User({
-//             email:req.body.username,
-//             password: hash
-//         });
-//         newUser.save()
-//         .then(() => {
-//             res.render("secrets");
-//         })
-//         .catch((err) => {
-//             console.log(err);
-//         });
-//     });
-// });
-
-// app.post("/login", function(req,res){
-//     const username= req.body.username;
-//     const password=md5(req.body.password);
-//     User.findOne({ email: username })
-//     .then((foundUser) => {
-//         if (foundUser && foundUser.password === password) {
-//             res.render("secrets");
-//         } else {
-//             // Handle case where user is not found or password does not match
-//             // You might want to redirect or render an error page here
-//         }
-//     })
-//     .catch((err) => {
-//         console.log(err);
-//     });
-// });
-
 app.post("/register", function(req,res){
 
     User.register({username:req.body.username}, req.body.password, function(err, user){
@@ -196,27 +160,8 @@ app.post("/register", function(req,res){
                 res.redirect("/secrets");
             })
         }
-    });
+    })
 });
-
-// app.post("/login", function(req,res){
-//     const username= req.body.username;
-//     const password=req.body.password;
-//     User.findOne({ email: username })
-//     .then((foundUser) => {
-//         bcrypt.compare(password , foundUser.password, function(err, result){
-//             if (result === true) {
-//                 // Assuming you're using Express and have set up a rendering engine
-//                 res.render("secrets");  
-//             } else {
-//                 console.error("Incorrect Password");
-//             }
-//         });
-//     })
-//     .catch((err) => {
-//         console.log(err);
-//     });
-// });
 
 app.post("/login", function(req,res){
     const user=new User({
@@ -231,9 +176,9 @@ app.post("/login", function(req,res){
                 res.redirect("/secrets");
             });
         }
-    });
-});
+    })
 
+});
 app.listen(3000, function(){
     console.log("Server started on port 3000.");
 });
